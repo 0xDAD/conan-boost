@@ -1,11 +1,12 @@
 from conans import ConanFile
 from conans import tools
-import os, sys
+import platform, os, sys
 
 
 class BoostConan(ConanFile):
     name = "Boost"
-    version = "1.64.0"
+    version = "1.65.1"
+    description = "Boost is free peer-reviewed portable C++ source libraries"
     settings = "os", "arch", "compiler", "build_type"
     FOLDER_NAME = "boost_%s" % version.replace(".", "_")
     # The current python option requires the package to be built locally, to find default Python
@@ -21,7 +22,6 @@ class BoostConan(ConanFile):
         "without_container": [True, False],
         "without_context": [True, False],
         "without_coroutine": [True, False],
-        "without_coroutine2": [True, False],
         "without_date_time": [True, False],
         "without_exception": [True, False],
         "without_fiber": [True, False],
@@ -39,52 +39,57 @@ class BoostConan(ConanFile):
         "without_regex": [True, False],
         "without_serialization": [True, False],
         "without_signals": [True, False],
+        "without_stacktrace": [True, False],
         "without_system": [True, False],
         "without_test": [True, False],
         "without_thread": [True, False],
         "without_timer": [True, False],
         "without_type_erasure": [True, False],
-        "without_wave": [True, False]
+        "without_wave": [True, False],
+        "IDL0": [True, False]
     }
 
-    default_options = "shared=False", \
-        "header_only=False", \
-        "fPIC=False", \
-        "python=False", \
-        "without_atomic=False", \
-        "without_chrono=False", \
-        "without_container=False", \
-        "without_context=False", \
-        "without_coroutine=False", \
-        "without_coroutine2=False", \
-        "without_date_time=False", \
-        "without_exception=False", \
-        "without_fiber=False", \
-        "without_filesystem=False", \
-        "without_graph=False", \
-        "without_graph_parallel=False", \
-        "without_iostreams=False", \
-        "without_locale=False", \
-        "without_log=False", \
-        "without_math=False", \
-        "without_metaparse=False", \
-        "without_mpi=False", \
-        "without_program_options=False", \
-        "without_random=False", \
-        "without_regex=False", \
-        "without_serialization=False", \
-        "without_signals=False", \
-        "without_system=False", \
-        "without_test=False", \
-        "without_thread=False", \
-        "without_timer=False", \
-        "without_type_erasure=False", \
-        "without_wave=False"
+    default_options = "shared=True", \
+                      "header_only=False", \
+                      "fPIC=False", \
+                      "python=False", \
+                      "without_atomic=False", \
+                      "without_chrono=False", \
+                      "without_container=False", \
+                      "without_context=False", \
+                      "without_coroutine=False", \
+                      "without_date_time=False", \
+                      "without_exception=False", \
+                      "without_fiber=False", \
+                      "without_filesystem=False", \
+                      "without_graph=False", \
+                      "without_graph_parallel=False", \
+                      "without_iostreams=False", \
+                      "without_locale=False", \
+                      "without_log=False", \
+                      "without_math=False", \
+                      "without_metaparse=False", \
+                      "without_mpi=False", \
+                      "without_program_options=False", \
+                      "without_random=False", \
+                      "without_regex=False", \
+                      "without_serialization=False", \
+                      "without_signals=False", \
+                      "without_stacktrace=False", \
+                      "without_system=False", \
+                      "without_test=False", \
+                      "without_thread=False", \
+                      "without_timer=False", \
+                      "without_type_erasure=False", \
+                      "without_wave=False", \
+                      "IDL0=False"
 
     url="https://github.com/lasote/conan-boost"
-    exports = ["FindBoost.cmake", "OriginalFindBoost*"]
+    exports = ["FindBoost.cmake", "OriginalFindBoost*", "*.patch"]
     license="Boost Software License - Version 1.0. http://www.boost.org/LICENSE_1_0.txt"
     short_paths = True
+    zlib_version = "1.2.11"
+    ZLIB_SOURCE = "zlib-%s" % zlib_version
 
     def config_options(self):
         """ First configuration step. Only settings are defined. Options can be removed
@@ -92,6 +97,8 @@ class BoostConan(ConanFile):
         """
         if self.settings.compiler == "Visual Studio":
             self.options.remove("fPIC")
+        else:
+            self.options.remove("IDL0")
 
     def configure(self):
         """ Second configuration step. Both settings and options have values, in this case
@@ -107,7 +114,7 @@ class BoostConan(ConanFile):
             self.options.remove("fPIC")
             self.options.remove("python")
 
-        if not self.options.without_iostreams and not self.options.header_only:
+        if not self.options.without_iostreams:
             if self.settings.os == "Linux" or self.settings.os == "Macos":
                 self.requires("bzip2/1.0.6@conan/stable")
                 self.options["bzip2/1.0.6"].shared = self.options.shared
@@ -120,20 +127,29 @@ class BoostConan(ConanFile):
 
     def source(self):
         zip_name = "%s.zip" % self.FOLDER_NAME if sys.platform == "win32" else "%s.tar.gz" % self.FOLDER_NAME
-        url = "http://sourceforge.net/projects/boost/files/boost/%s/%s/download" % (self.version, zip_name)
+        url = "https://dl.bintray.com/boostorg/release/%s/source/%s" % (self.version, zip_name)
         self.output.info("Downloading %s..." % url)
         tools.download(url, zip_name)
-        tools.unzip(zip_name)
+        tools.unzip(zip_name, ".")
         os.unlink(zip_name)
+        if self.settings.os == "Windows" and not self.options.without_iostreams:
+            self.zlib_source()
+        self.fix_osjam_issue()
+
+    def zlib_source(self):
+        z_name = "zlib-%s.tar.gz" % self.zlib_version
+        tools.download("http://downloads.sourceforge.net/project/libpng/zlib/%s/%s" % (self.zlib_version, z_name), z_name)
+        tools.unzip(z_name)
+        os.unlink(z_name)
 
     def build(self):
         if self.options.header_only:
             self.output.warn("Header only package, skipping build")
             return
 
-        flags = self.boostrap()
+        flags = self.bootstrap()
 
-        self.patch_project_jam()
+        #self.patch_project_jam()
 
         flags.extend(self.get_build_flags())
 
@@ -149,9 +165,11 @@ class BoostConan(ConanFile):
             b2_flags,
             tools.cpu_count(),
             without_python)  # -d2 is to print more debug info and avoid travis timing out without output
-        
+
         if self.settings.os == "Windows" and self.settings.compiler == "Visual Studio":
-            full_command = "%s && %s" % (tools.vcvars_command(self.settings), full_command)
+            self.run(tools.vcvars_command(self.settings))
+        #if self.settings.os == "Windows" and self.settings.compiler == "Visual Studio":
+        #   full_command = "%s && %s" % (tools.vcvars_command(self.settings), full_command)
       
         self.output.warn(full_command)
         self.run(full_command)
@@ -183,7 +201,6 @@ class BoostConan(ConanFile):
             "--without-container": self.options.without_container,
             "--without-context": self.options.without_context,
             "--without-coroutine": self.options.without_coroutine,
-            "--without-coroutine2": self.options.without_coroutine2,
             "--without-date_time": self.options.without_date_time,
             "--without-exception": self.options.without_exception,
             "--without-fiber": self.options.without_fiber,
@@ -201,6 +218,7 @@ class BoostConan(ConanFile):
             "--without-regex": self.options.without_regex,
             "--without-serialization": self.options.without_serialization,
             "--without-signals": self.options.without_signals,
+            "--without-stacktrace": self.options.without_stacktrace,
             "--without-system": self.options.without_system,
             "--without-test": self.options.without_test,
             "--without-thread": self.options.without_thread,
@@ -218,6 +236,17 @@ class BoostConan(ConanFile):
         if self.settings.compiler != "Visual Studio":
             if self.options.fPIC:
                 cxx_flags.append("-fPIC")
+        else:
+            if self.options.IDL0:
+                cxx_flags.append("-D_ITERATOR_DEBUG_LEVEL=0")
+
+        if self.settings.os == "Windows" and not self.options.without_iostreams:
+            flags.append("-sNO_ZLIB=0")
+            if (self.ZLIB_SOURCE):
+                zlib_abs_source = os.path.abspath(self.ZLIB_SOURCE)
+                print("Building with ZLIB_SOURCE = '%s'..." % zlib_abs_source)
+                flags.append('-sZLIB_SOURCE="%s"' % zlib_abs_source)
+
 
         # LIBCXX DEFINITION FOR BOOST B2
         try:
@@ -240,14 +269,11 @@ class BoostConan(ConanFile):
         flags.append(cxx_flags)
         return flags
 
-    def boostrap(self):
+    def bootstrap(self):
         with_toolset = {"apple-clang": "darwin"}.get(str(self.settings.compiler),
                                                      str(self.settings.compiler))
         command = "bootstrap" if self.settings.os == "Windows" \
                               else "./bootstrap.sh --with-toolset=%s" % with_toolset
-
-        if self.settings.os == "Windows" and self.settings.compiler == "Visual Studio":
-            command = "%s && %s" % (tools.vcvars_command(self.settings), command)
 
         flags = []
         if self.settings.os == "Windows" and self.settings.compiler == "gcc":
@@ -255,6 +281,9 @@ class BoostConan(ConanFile):
             flags.append("--layout=system")
 
         try:
+            ##setup build environment
+            if self.settings.os == "Windows" and self.settings.compiler == "Visual Studio":
+                self.run(tools.vcvars_command(self.settings))
             self.run("cd %s && %s" % (self.FOLDER_NAME, command))
         except:
             self.run("cd %s && type bootstrap.log" % self.FOLDER_NAME
@@ -262,6 +291,11 @@ class BoostConan(ConanFile):
                      else "cd %s && cat bootstrap.log" % self.FOLDER_NAME)
             raise
         return flags
+
+    def fix_osjam_issue(self):
+        base_path = "%s/tools/build" % self.FOLDER_NAME
+        tools.patch(base_path, r"boost_build_fix_1_65.patch")
+
 
     def patch_project_jam(self):
         self.output.warn("Patching project-config.jam")
@@ -287,28 +321,6 @@ class BoostConan(ConanFile):
         self.copy(pattern="*.dylib*", dst="lib", src="%s/stage/lib" % self.FOLDER_NAME)
         self.copy(pattern="*.lib", dst="lib", src="%s/stage/lib" % self.FOLDER_NAME)
         self.copy(pattern="*.dll", dst="bin", src="%s/stage/lib" % self.FOLDER_NAME)
-
-        if not self.options.header_only and self.settings.compiler == "Visual Studio" and \
-           self.options.shared == "False":
-            # CMake findPackage help
-            renames = []
-            for libname in os.listdir(os.path.join(self.package_folder, "lib")):
-                libpath = os.path.join(self.package_folder, "lib", libname)
-                new_name = libname
-                if new_name.startswith("lib"):
-                    if os.path.isfile(libpath):
-                        new_name =  libname[3:]
-                if "-s-" in libname:
-                    new_name = new_name.replace("-s-", "-")
-                elif "-sgd-" in libname:
-                    new_name = new_name.replace("-sgd-", "-gd-")
-
-                renames.append([libpath, os.path.join(self.package_folder, "lib", new_name)])
-
-            for original, new in renames:
-                if original != new:
-                    self.output.info("Rename: %s => %s" % (original, new))
-                    os.rename(original, new)
 
     def package_info(self):
         self.cpp_info.libs = self.collect_libs()
